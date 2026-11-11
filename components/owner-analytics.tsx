@@ -13,7 +13,7 @@ const dateLabel=(s:string)=>new Intl.DateTimeFormat("ar-EG",{day:"numeric",month
 export default function OwnerAnalytics(){
  const db=useMemo(()=>createClient(),[]);
  const [sales,setSales]=useState<Sale[]>([]),[expenses,setExpenses]=useState<Expense[]>([]),[moves,setMoves]=useState<Movement[]>([]),[products,setProducts]=useState<Product[]>([]),[customers,setCustomers]=useState<Customer[]>([]);
- const [period,setPeriod]=useState("30"),[loading,setLoading]=useState(true),[error,setError]=useState("");
+ const [period,setPeriod]=useState("all"),[loading,setLoading]=useState(true),[error,setError]=useState("");
  async function load(){
   setLoading(true);setError("");
   const [s,e,m,p,c]=await Promise.all([
@@ -28,7 +28,7 @@ export default function OwnerAnalytics(){
   setSales((s.data||[]) as Sale[]);setExpenses((e.data||[]) as Expense[]);setMoves((m.data||[]) as Movement[]);setProducts((p.data||[]) as Product[]);setCustomers((c.data||[]) as Customer[]);
   setLoading(false);
  }
- useEffect(()=>{void load();const channel=db.channel("owner-analytics-live").on("postgres_changes",{event:"*",schema:"public",table:"sales"},()=>void load()).on("postgres_changes",{event:"*",schema:"public",table:"expenses"},()=>void load()).on("postgres_changes",{event:"*",schema:"public",table:"inventory_movements"},()=>void load()).on("postgres_changes",{event:"*",schema:"public",table:"customers"},()=>void load()).subscribe();return()=>{void db.removeChannel(channel);};},[db]);
+ useEffect(()=>{void load();const channel=db.channel("owner-analytics-live").on("postgres_changes",{event:"*",schema:"public",table:"sales"},()=>void load()).on("postgres_changes",{event:"*",schema:"public",table:"expenses"},()=>void load()).on("postgres_changes",{event:"*",schema:"public",table:"inventory_movements"},()=>void load()).on("postgres_changes",{event:"*",schema:"public",table:"customers"},()=>void load()).on("postgres_changes",{event:"*",schema:"public",table:"products"},()=>void load()).subscribe();return()=>{void db.removeChannel(channel);};},[db]);
  const filtered=useMemo(()=>{
   const validSales=sales.filter(x=>n(x.total_egp)>0&&x.operation_type!=="صرف للمحل"&&x.channel!=="صرف داخلي");
   const days=period==="all"?Infinity:Number(period);
@@ -56,7 +56,7 @@ export default function OwnerAnalytics(){
  const shortLabel=(s:string)=>s.length>12?s.slice(0,11)+"…":s;
  return <section style={{display:"grid",gap:16}}>
   <div className="panel" style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:12,flexWrap:"wrap"}}>
-   <div><div className="eyebrow">OWNER INSIGHTS</div><h2 style={{margin:"3px 0"}}>مركز متابعة الأونر</h2><div className="muted" style={{fontSize:12}}>قراءة حركة الرايق من واقع قاعدة البيانات • يتحدث تلقائيًا عند تسجيل عمليات جديدة</div></div>
+   <div><div className="eyebrow">OWNER INSIGHTS</div><h2 style={{margin:"3px 0"}}>مركز متابعة الأونر</h2><div className="muted" style={{fontSize:12}}>من 1 نوفمبر 2026 وحتى اليوم • كل عملية جديدة تُضاف تلقائيًا للمخطط</div></div>
    <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>{[["7","7 أيام"],["30","30 يوم"],["90","90 يوم"],["all","كل الفترة"]].map(([v,l])=><button key={v} className={"btn "+(period===v?"gold":"light")} onClick={()=>setPeriod(v)}>{l}</button>)}<button className="btn light" onClick={()=>void load()} disabled={loading}>تحديث</button></div>
   </div>
   {error&&<div className="error">{error}</div>}
