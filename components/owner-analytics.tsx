@@ -2,8 +2,8 @@
 import {useEffect,useMemo,useState} from "react";
 import {createClient} from "@/lib/supabase/client";
 
-type Sale={id:string;occurred_on:string;product_name:string|null;total_egp:number|string;quantity:number|string;channel:string|null;operation_type:string|null;customer_name:string|null};
-type Expense={id:string;occurred_on:string;amount_egp:number|string;category:string|null;description:string};
+type Sale={id:string;occurred_on:string;product_name:string|null;total_egp:number|string;paid_egp:number|string|null;remaining_egp:number|string|null;quantity:number|string;channel:string|null;operation_type:string|null;customer_name:string|null};
+type Expense={id:string;occurred_on:string;amount_egp:number|string;category:string|null;description:string;payment_method:string|null};
 type Movement={id:string;product_name:string;quantity:number|string;remaining_quantity:number|string|null;movement_type:string;occurred_on:string};
 type Product={id:string;name:string;unit:string|null;unit_cost_egp:number|string|null;reorder_level:number|string|null};
 type Customer={id:string;name:string;balance_due_egp:number|string|null};
@@ -18,8 +18,8 @@ export default function OwnerAnalytics(){
  async function load(){
   setLoading(true);setError("");
   const [s,e,m,p,c,v]=await Promise.all([
-   db.from("sales").select("id,occurred_on,product_name,total_egp,quantity,channel,operation_type,customer_name").order("occurred_on",{ascending:true}).limit(5000),
-   db.from("expenses").select("id,occurred_on,amount_egp,category,description").order("occurred_on",{ascending:true}).limit(3000),
+   db.from("sales").select("id,occurred_on,product_name,total_egp,paid_egp,remaining_egp,quantity,channel,operation_type,customer_name").order("occurred_on",{ascending:true}).limit(5000),
+   db.from("expenses").select("id,occurred_on,amount_egp,category,description,payment_method").order("occurred_on",{ascending:true}).limit(3000),
    db.from("inventory_movements").select("id,product_name,quantity,remaining_quantity,movement_type,occurred_on").order("occurred_on",{ascending:false}).limit(3000),
    db.from("products").select("id,name,unit,unit_cost_egp,reorder_level").eq("is_active",true).order("name"),
    db.from("customers").select("id,name,balance_due_egp").order("name"),
@@ -41,6 +41,7 @@ export default function OwnerAnalytics(){
  },[sales,expenses,period]);
  const metrics=useMemo(()=>{
   const revenue=filtered.sales.reduce((a,x)=>a+n(x.total_egp),0),spent=filtered.expenses.reduce((a,x)=>a+n(x.amount_egp),0);
+  const collected=filtered.sales.reduce((a,x)=>a+n(x.paid_egp),0),outstanding=filtered.sales.reduce((a,x)=>a+n(x.remaining_egp),0);
   const days=new Map<string,{sales:number;expenses:number}>();
   filtered.sales.forEach(x=>{const d=days.get(x.occurred_on)||{sales:0,expenses:0};d.sales+=n(x.total_egp);days.set(x.occurred_on,d);});
   filtered.expenses.forEach(x=>{const d=days.get(x.occurred_on)||{sales:0,expenses:0};d.expenses+=n(x.amount_egp);days.set(x.occurred_on,d);});
@@ -52,8 +53,9 @@ export default function OwnerAnalytics(){
   const stock=[...moves.reduce((map,x)=>{const k=x.product_name||"غير محدد";if(!map.has(k))map.set(k,n(x.remaining_quantity));return map;},new Map<string,number>()).entries()].sort((a,b)=>a[0].localeCompare(b[0],"ar"));
   const maxStock=Math.max(0,...stock.map(x=>x[1]));
   const stockKg=stock.reduce((a,x)=>a+x[1],0);
+  const expenseGroups=[...filtered.expenses.reduce((map,x)=>{const k=x.category||x.description||"غير مصنف";map.set(k,(map.get(k)||0)+n(x.amount_egp));return map;},new Map<string,number>()).entries()].sort((a,b)=>b[1]-a[1]);
   const costKnown=products.filter(x=>x.unit_cost_egp!==null&&n(x.unit_cost_egp)>0).length;
-  return {revenue,spent,difference:revenue-spent,series,top,channels,receivables,payables,stock,stockKg,maxStock,costKnown,orders:filtered.sales.length};
+  return {revenue,spent,difference:revenue-spent,collected,outstanding,expenseGroups,series,top,channels,receivables,payables,stock,stockKg,maxStock,costKnown,orders:filtered.sales.length};
  },[filtered,customers,suppliers,moves,products]);
  const maxBar=Math.max(1,...metrics.series.flatMap(x=>[x.sales,x.expenses]));
  const chartPoints=metrics.series.map((x,i)=>({x:metrics.series.length===1?320:40+(i/(metrics.series.length-1))*560,salesY:190-(x.sales/maxBar)*155,expensesY:190-(x.expenses/maxBar)*155}));
