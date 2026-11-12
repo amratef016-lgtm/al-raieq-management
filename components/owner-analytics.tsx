@@ -84,7 +84,14 @@ export default function OwnerAnalytics(){
   const stockKg=stock.reduce((a,x)=>a+x[1],0);
   const expenseGroups=[...filtered.expenses.reduce((map,x)=>{const k=x.category||x.description||"غير مصنف";map.set(k,(map.get(k)||0)+n(x.amount_egp));return map;},new Map<string,number>()).entries()].sort((a,b)=>b[1]-a[1]);
   const costKnown=products.filter(x=>x.unit_cost_egp!==null&&n(x.unit_cost_egp)>0).length;
-  return {revenue,spent,difference:revenue-spent,collected,outstanding,expenseGroups,series,top,channels,receivables,payables,stock,stockKg,maxStock,costKnown,orders:filtered.sales.length};
+  const costRows=filtered.sales.map(s=>({sale:s,product:productForSale(s,products)}));
+  const knownCostRevenue=costRows.filter(x=>x.product).reduce((a,x)=>a+n(x.sale.total_egp),0);
+  const unknownCostRevenue=costRows.filter(x=>!x.product).reduce((a,x)=>a+n(x.sale.total_egp),0);
+  const cogs=costRows.filter(x=>x.product).reduce((a,x)=>a+n(x.sale.quantity)*n(x.product?.unit_cost_egp),0);
+  const grossProfitKnown=knownCostRevenue-cogs;
+  const netProfitKnown=grossProfitKnown-spent;
+  const costCoverage=revenue>0?knownCostRevenue/revenue*100:0;
+  return {revenue,spent,difference:revenue-spent,collected,outstanding,expenseGroups,series,top,channels,receivables,payables,stock,stockKg,maxStock,costKnown,cogs,knownCostRevenue,unknownCostRevenue,grossProfitKnown,netProfitKnown,costCoverage,orders:filtered.sales.length};
  },[filtered,customers,suppliers,moves,products]);
  const maxBar=Math.max(1,...metrics.series.flatMap(x=>[x.sales,x.expenses]));
  const chartPoints=metrics.series.map((x,i)=>({x:metrics.series.length===1?320:40+(i/(metrics.series.length-1))*560,salesY:190-(x.sales/maxBar)*155,expensesY:190-(x.expenses/maxBar)*155}));
