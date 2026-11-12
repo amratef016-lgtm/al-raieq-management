@@ -5,8 +5,9 @@ import {createClient} from "@/lib/supabase/client";
 type Sale={id:string;occurred_on:string;product_name:string|null;total_egp:number|string;quantity:number|string;channel:string|null;operation_type:string|null;customer_name:string|null};
 type Expense={id:string;occurred_on:string;amount_egp:number|string;category:string|null;description:string};
 type Movement={id:string;product_name:string;quantity:number|string;remaining_quantity:number|string|null;movement_type:string;occurred_on:string};
-type Product={id:string;name:string;unit:string|null;reorder_level:number|string|null};
-type Customer={id:string;name:string;balance_due_egp:number|string|null};\ntype Supplier={id:string;name:string;balance_due_egp:number|string|null};
+type Product={id:string;name:string;unit:string|null;unit_cost_egp:number|string|null;reorder_level:number|string|null};
+type Customer={id:string;name:string;balance_due_egp:number|string|null};
+type Supplier={id:string;name:string;balance_due_egp:number|string|null};
 const n=(v:unknown)=>Number(v||0);
 const egp=(v:number)=>new Intl.NumberFormat("ar-EG",{maximumFractionDigits:0}).format(v)+" ج.م";
 const dateLabel=(s:string)=>new Intl.DateTimeFormat("ar-EG",{day:"numeric",month:"short"}).format(new Date(s+"T12:00:00"));
@@ -20,8 +21,9 @@ export default function OwnerAnalytics(){
    db.from("sales").select("id,occurred_on,product_name,total_egp,quantity,channel,operation_type,customer_name").order("occurred_on",{ascending:true}).limit(5000),
    db.from("expenses").select("id,occurred_on,amount_egp,category,description").order("occurred_on",{ascending:true}).limit(3000),
    db.from("inventory_movements").select("id,product_name,quantity,remaining_quantity,movement_type,occurred_on").order("occurred_on",{ascending:false}).limit(3000),
-   db.from("products").select("id,name,unit,reorder_level").eq("is_active",true).order("name"),
-   db.from("customers").select("id,name,balance_due_egp").order("name")
+   db.from("products").select("id,name,unit,unit_cost_egp,reorder_level").eq("is_active",true).order("name"),
+   db.from("customers").select("id,name,balance_due_egp").order("name"),
+   db.from("suppliers").select("id,name,balance_due_egp").order("name")
   ]);
   const failure=[s,e,m,p,c,v].find(x=>x.error);
   if(failure?.error)setError("تعذر تحميل بعض المؤشرات: "+failure.error.message);
@@ -45,10 +47,13 @@ export default function OwnerAnalytics(){
   const series=[...days.entries()].sort((a,b)=>a[0].localeCompare(b[0])).map(([date,v])=>({date,...v}));
   const top=[...filtered.sales.reduce((map,x)=>{const k=x.product_name||"غير محدد";map.set(k,(map.get(k)||0)+n(x.total_egp));return map;},new Map<string,number>()).entries()].sort((a,b)=>b[1]-a[1]).slice(0,5);
   const channels=[...filtered.sales.reduce((map,x)=>{const k=x.channel||"غير محدد";map.set(k,(map.get(k)||0)+n(x.total_egp));return map;},new Map<string,number>()).entries()].sort((a,b)=>b[1]-a[1]);
-  const receivables=customers.reduce((a,x)=>a+n(x.balance_due_egp),0);\n  const payables=suppliers.reduce((a,x)=>a+n(x.balance_due_egp),0);
+  const receivables=customers.reduce((a,x)=>a+n(x.balance_due_egp),0);
+  const payables=suppliers.reduce((a,x)=>a+n(x.balance_due_egp),0);
   const stock=[...moves.reduce((map,x)=>{const k=x.product_name||"غير محدد";if(!map.has(k))map.set(k,n(x.remaining_quantity));return map;},new Map<string,number>()).entries()].sort((a,b)=>a[0].localeCompare(b[0],"ar"));
   const maxStock=Math.max(0,...stock.map(x=>x[1]));
-  const stockKg=stock.reduce((a,x)=>a+x[1],0);\n  const costKnown=products.filter(x=>x.unit_cost_egp!==null&&n(x.unit_cost_egp)>0).length;\n  return {revenue,spent,difference:revenue-spent,series,top,channels,receivables,payables,stock,stockKg,maxStock,costKnown,orders:filtered.sales.length};
+  const stockKg=stock.reduce((a,x)=>a+x[1],0);
+  const costKnown=products.filter(x=>x.unit_cost_egp!==null&&n(x.unit_cost_egp)>0).length;
+  return {revenue,spent,difference:revenue-spent,series,top,channels,receivables,payables,stock,stockKg,maxStock,costKnown,orders:filtered.sales.length};
  },[filtered,customers,suppliers,moves,products]);
  const maxBar=Math.max(1,...metrics.series.flatMap(x=>[x.sales,x.expenses]));
  const chartPoints=metrics.series.map((x,i)=>({x:metrics.series.length===1?320:40+(i/(metrics.series.length-1))*560,salesY:190-(x.sales/maxBar)*155,expensesY:190-(x.expenses/maxBar)*155}));
