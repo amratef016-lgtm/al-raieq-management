@@ -2,7 +2,7 @@
 import {useEffect,useMemo,useState} from "react";
 import {createClient} from "@/lib/supabase/client";
 
-type Sale={id:string;occurred_on:string;product_name:string|null;total_egp:number|string;paid_egp:number|string|null;remaining_egp:number|string|null;quantity:number|string;channel:string|null;operation_type:string|null;customer_name:string|null};
+type Sale={id:string;occurred_on:string;product_name:string|null;notes:string|null;total_egp:number|string;paid_egp:number|string|null;remaining_egp:number|string|null;quantity:number|string;channel:string|null;operation_type:string|null;customer_name:string|null};
 type Expense={id:string;occurred_on:string;amount_egp:number|string;category:string|null;description:string;payment_method:string|null};
 type Movement={id:string;product_name:string;quantity:number|string;remaining_quantity:number|string|null;movement_type:string;occurred_on:string};
 type Product={id:string;name:string;unit:string|null;unit_cost_egp:number|string|null;reorder_level:number|string|null};
@@ -10,6 +10,35 @@ type Customer={id:string;name:string;balance_due_egp:number|string|null};
 type Supplier={id:string;name:string;balance_due_egp:number|string|null};
 const n=(v:unknown)=>Number(v||0);
 const egp=(v:number)=>new Intl.NumberFormat("ar-EG",{maximumFractionDigits:0}).format(v)+" ج.م";
+const productForSale=(sale:Sale,products:Product[])=>{
+ const name=(sale.product_name||"").trim(), note=(sale.notes||"");
+ let target="";
+ if(name.includes("آيس سبان")||name.includes("آيس سباني")) target="آيس سبانيش لاتيه";
+ else if(name.includes("آيس لاتيه")) target="آيس لاتيه";
+ else if(name.includes("آيس موكا")) target="آيس موكا";
+ else if(name.includes("آيس كوفي")) target="آيس كوفي";
+ else if(name.includes("أمريكانو")) target="أمريكانو";
+ else if(name.includes("قهوة تركي")) target="قهوة تركي";
+ else if(name.includes("إسبريسو")||name.includes("اسبريسو")||name.includes("اسبيريسو")){
+  if(name.includes("آيس")) return null;
+  if(name==="اسبيريسو"||name==="إسبريسو بالكيلو") return null;
+  target=name.includes("دبل")?"دبل شوت إسبريسو":"إسبريسو";
+ }
+ else if(name.includes("كلاسيك")) target=(note.includes("محوج")||name.includes("محوج"))?"الرايق كلاسيك محوج":"الرايق كلاسيك سادة";
+ else if(name.includes("عميد")) target=(note.includes("محوج")||name.includes("محوج"))?"العميد الأردني محوج":"العميد الأردني سادة";
+ else if(name.includes("اسبيشيال")||name.includes("اسبشيال")||name.includes("اسبيشال")){
+  if(note.includes("محوج")||name.includes("محوج")) target="الرايق اسبيشيال محوج";
+  else if(note.includes("سادة")||name.includes("سادة")) target="الرايق اسبيشيال سادة";
+  else return null;
+ }
+ else if(name.includes("شاي أخضر")) target="شاي أخضر";
+ else if(name==="شاي") target="شاي";
+ else if(name.includes("سبانيش لاتيه")) target="سبانيش لاتيه";
+ else if(name==="لاتيه") target="لاتيه";
+ else if(name==="موكا") target="موكا";
+ const p=products.find(x=>x.name===target);
+ return p&&p.unit_cost_egp!==null&&n(p.unit_cost_egp)>0?p:null;
+};
 const dateLabel=(s:string)=>new Intl.DateTimeFormat("ar-EG",{day:"numeric",month:"short"}).format(new Date(s+"T12:00:00"));
 export default function OwnerAnalytics(){
  const db=useMemo(()=>createClient(),[]);
@@ -18,7 +47,7 @@ export default function OwnerAnalytics(){
  async function load(){
   setLoading(true);setError("");
   const [s,e,m,p,c,v]=await Promise.all([
-   db.from("sales").select("id,occurred_on,product_name,total_egp,paid_egp,remaining_egp,quantity,channel,operation_type,customer_name").order("occurred_on",{ascending:true}).limit(5000),
+   db.from("sales").select("id,occurred_on,product_name,notes,total_egp,paid_egp,remaining_egp,quantity,channel,operation_type,customer_name").order("occurred_on",{ascending:true}).limit(5000),
    db.from("expenses").select("id,occurred_on,amount_egp,category,description,payment_method").order("occurred_on",{ascending:true}).limit(3000),
    db.from("inventory_movements").select("id,product_name,quantity,remaining_quantity,movement_type,occurred_on").order("occurred_on",{ascending:false}).limit(3000),
    db.from("products").select("id,name,unit,unit_cost_egp,reorder_level").eq("is_active",true).order("name"),
@@ -100,7 +129,7 @@ export default function OwnerAnalytics(){
     <section className="panel"><div className="panel-head"><h2>المخزون الفعلي المتبقي</h2><span className="pill green">حسب آخر رصيد مسجل لكل صنف</span></div>{metrics.stock.length?metrics.stock.map(([name,value])=><div key={name} style={{display:"flex",justifyContent:"space-between",padding:"10px 0",borderBottom:"1px solid var(--line)",fontSize:13}}><span>{name}</span><strong>{value.toLocaleString("ar-EG",{maximumFractionDigits:3})} كجم</strong></div>):<div className="empty">لا توجد حركات مخزون مسجلة.</div>}</section>
     <section className="panel"><div className="panel-head"><h2>قنوات البيع</h2></div>{metrics.channels.length?metrics.channels.map(([name,value])=><div key={name} style={{display:"flex",justifyContent:"space-between",padding:"10px 0",borderBottom:"1px solid var(--line)",fontSize:13}}><span>{name}</span><strong>{egp(value)}</strong></div>):<div className="empty">لا توجد بيانات.</div>}<div style={{marginTop:14,paddingTop:12,borderTop:"1px solid var(--line)",fontSize:12,color:"var(--muted)"}}>الفترة: {dateLabel(filtered.start)} — {dateLabel(filtered.end)}</div></section>
    </div>
-   <section className="panel"><div className="panel-head"><h2>متى أقدر أقولك كسبان ولا خسران؟</h2></div><div className="muted" style={{fontSize:12,lineHeight:2}}>• المؤكد حاليًا: الإيرادات والمصروفات المسجلة، مديونيات العملاء، التزامات الموردين، وكميات المخزون.<br/>• صافي الربح لن يظهر كرقم نهائي قبل تثبيت تكلفة الكيلو الفعلية لكل صنف وتكلفة مكونات المشروبات وربطها بالمبيعات.<br/>• قيمة المخزون لن تُقدّر من أسعار البيع أو من تكاليف قديمة؛ نحتاج تكلفة شراء حديثة لكل شحنة.<br/>• النقدية الحالية لا تُستنتج من إجمالي المبيعات؛ يلزم رصيد خزنة افتتاحي وتسجيل التحصيلات والمدفوعات الفعلية.<br/>• الفرق المعروض هو المبيعات ناقص المصروفات المسجلة فقط، وليس صافي الربح.</div></section>
+   <section className="panel"><div className="panel-head"><h2>طريقة قراءة الربحية</h2><span className="pill">تكلفة فعلية من بطاقة الصنف</span></div><div className="muted" style={{fontSize:12,lineHeight:2}}>• تكلفة البضاعة المحسوبة = كمية كل عملية بيع × تكلفة الوحدة المسجلة للصنف المطابق.<br/>• صافي المبدئي = المبيعات ذات التكلفة المعروفة − تكلفة هذه المبيعات − المصروفات المسجلة.<br/>• يوجد {egp(metrics.unknownCostRevenue)} مبيعات لم تطابق تكلفة شراء مسجلة؛ لا أخمّن تكلفتها ولا أضمّها للربح.<br/>• بعض تكاليف الأصناف المسجلة موصوفة في قاعدة البيانات بأنها قديمة أو تقديرية، لذلك يلزم اعتمادها قبل اعتبار الربح نهائيًا.<br/>• رأس المال النقدي يحتاج رصيد خزنة افتتاحي؛ قيمة المخزون تُحسب منفصلة عن السيولة.</div></section>
   </>}
  </section>;
 }
