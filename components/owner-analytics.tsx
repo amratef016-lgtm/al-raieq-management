@@ -6,29 +6,29 @@ type Sale={id:string;occurred_on:string;product_name:string|null;total_egp:numbe
 type Expense={id:string;occurred_on:string;amount_egp:number|string;category:string|null;description:string};
 type Movement={id:string;product_name:string;quantity:number|string;remaining_quantity:number|string|null;movement_type:string;occurred_on:string};
 type Product={id:string;name:string;unit:string|null;reorder_level:number|string|null};
-type Customer={id:string;name:string;balance_due_egp:number|string|null};
+type Customer={id:string;name:string;balance_due_egp:number|string|null};\ntype Supplier={id:string;name:string;balance_due_egp:number|string|null};
 const n=(v:unknown)=>Number(v||0);
 const egp=(v:number)=>new Intl.NumberFormat("ar-EG",{maximumFractionDigits:0}).format(v)+" ج.م";
 const dateLabel=(s:string)=>new Intl.DateTimeFormat("ar-EG",{day:"numeric",month:"short"}).format(new Date(s+"T12:00:00"));
 export default function OwnerAnalytics(){
  const db=useMemo(()=>createClient(),[]);
- const [sales,setSales]=useState<Sale[]>([]),[expenses,setExpenses]=useState<Expense[]>([]),[moves,setMoves]=useState<Movement[]>([]),[products,setProducts]=useState<Product[]>([]),[customers,setCustomers]=useState<Customer[]>([]);
+ const [sales,setSales]=useState<Sale[]>([]),[expenses,setExpenses]=useState<Expense[]>([]),[moves,setMoves]=useState<Movement[]>([]),[products,setProducts]=useState<Product[]>([]),[customers,setCustomers]=useState<Customer[]>([]),[suppliers,setSuppliers]=useState<Supplier[]>([]);
  const [period,setPeriod]=useState("all"),[loading,setLoading]=useState(true),[error,setError]=useState("");
  async function load(){
   setLoading(true);setError("");
-  const [s,e,m,p,c]=await Promise.all([
+  const [s,e,m,p,c,v]=await Promise.all([
    db.from("sales").select("id,occurred_on,product_name,total_egp,quantity,channel,operation_type,customer_name").order("occurred_on",{ascending:true}).limit(5000),
    db.from("expenses").select("id,occurred_on,amount_egp,category,description").order("occurred_on",{ascending:true}).limit(3000),
    db.from("inventory_movements").select("id,product_name,quantity,remaining_quantity,movement_type,occurred_on").order("occurred_on",{ascending:false}).limit(3000),
    db.from("products").select("id,name,unit,reorder_level").eq("is_active",true).order("name"),
    db.from("customers").select("id,name,balance_due_egp").order("name")
   ]);
-  const failure=[s,e,m,p,c].find(x=>x.error);
+  const failure=[s,e,m,p,c,v].find(x=>x.error);
   if(failure?.error)setError("تعذر تحميل بعض المؤشرات: "+failure.error.message);
-  setSales((s.data||[]) as Sale[]);setExpenses((e.data||[]) as Expense[]);setMoves((m.data||[]) as Movement[]);setProducts((p.data||[]) as Product[]);setCustomers((c.data||[]) as Customer[]);
+  setSales((s.data||[]) as Sale[]);setExpenses((e.data||[]) as Expense[]);setMoves((m.data||[]) as Movement[]);setProducts((p.data||[]) as Product[]);setCustomers((c.data||[]) as Customer[]);setSuppliers((v.data||[]) as Supplier[]);
   setLoading(false);
  }
- useEffect(()=>{void load();const channel=db.channel("owner-analytics-live").on("postgres_changes",{event:"*",schema:"public",table:"sales"},()=>void load()).on("postgres_changes",{event:"*",schema:"public",table:"expenses"},()=>void load()).on("postgres_changes",{event:"*",schema:"public",table:"inventory_movements"},()=>void load()).on("postgres_changes",{event:"*",schema:"public",table:"customers"},()=>void load()).on("postgres_changes",{event:"*",schema:"public",table:"products"},()=>void load()).subscribe();return()=>{void db.removeChannel(channel);};},[db]);
+ useEffect(()=>{void load();const channel=db.channel("owner-analytics-live").on("postgres_changes",{event:"*",schema:"public",table:"sales"},()=>void load()).on("postgres_changes",{event:"*",schema:"public",table:"expenses"},()=>void load()).on("postgres_changes",{event:"*",schema:"public",table:"inventory_movements"},()=>void load()).on("postgres_changes",{event:"*",schema:"public",table:"customers"},()=>void load()).on("postgres_changes",{event:"*",schema:"public",table:"suppliers"},()=>void load()).on("postgres_changes",{event:"*",schema:"public",table:"products"},()=>void load()).subscribe();return()=>{void db.removeChannel(channel);};},[db]);
  const filtered=useMemo(()=>{
   const validSales=sales.filter(x=>n(x.total_egp)>0&&x.operation_type!=="صرف للمحل"&&x.channel!=="صرف داخلي");
   const days=period==="all"?Infinity:Number(period);
@@ -45,11 +45,11 @@ export default function OwnerAnalytics(){
   const series=[...days.entries()].sort((a,b)=>a[0].localeCompare(b[0])).map(([date,v])=>({date,...v}));
   const top=[...filtered.sales.reduce((map,x)=>{const k=x.product_name||"غير محدد";map.set(k,(map.get(k)||0)+n(x.total_egp));return map;},new Map<string,number>()).entries()].sort((a,b)=>b[1]-a[1]).slice(0,5);
   const channels=[...filtered.sales.reduce((map,x)=>{const k=x.channel||"غير محدد";map.set(k,(map.get(k)||0)+n(x.total_egp));return map;},new Map<string,number>()).entries()].sort((a,b)=>b[1]-a[1]);
-  const receivables=customers.reduce((a,x)=>a+n(x.balance_due_egp),0);
+  const receivables=customers.reduce((a,x)=>a+n(x.balance_due_egp),0);\n  const payables=suppliers.reduce((a,x)=>a+n(x.balance_due_egp),0);
   const stock=[...moves.reduce((map,x)=>{const k=x.product_name||"غير محدد";if(!map.has(k))map.set(k,n(x.remaining_quantity));return map;},new Map<string,number>()).entries()].sort((a,b)=>a[0].localeCompare(b[0],"ar"));
   const maxStock=Math.max(0,...stock.map(x=>x[1]));
-  return {revenue,spent,difference:revenue-spent,series,top,channels,receivables,stock,maxStock,orders:filtered.sales.length};
- },[filtered,customers,moves]);
+  const stockKg=stock.reduce((a,x)=>a+x[1],0);\n  const costKnown=products.filter(x=>x.unit_cost_egp!==null&&n(x.unit_cost_egp)>0).length;\n  return {revenue,spent,difference:revenue-spent,series,top,channels,receivables,payables,stock,stockKg,maxStock,costKnown,orders:filtered.sales.length};
+ },[filtered,customers,suppliers,moves,products]);
  const maxBar=Math.max(1,...metrics.series.flatMap(x=>[x.sales,x.expenses]));
  const chartPoints=metrics.series.map((x,i)=>({x:metrics.series.length===1?320:40+(i/(metrics.series.length-1))*560,salesY:190-(x.sales/maxBar)*155,expensesY:190-(x.expenses/maxBar)*155}));
  const salesPath=chartPoints.map((p,i)=>(i?"L":"M")+p.x+","+p.salesY).join(" ");
@@ -65,7 +65,7 @@ export default function OwnerAnalytics(){
    <div className="cards">
     <div className="card"><div className="metric-label">إجمالي المبيعات</div><div className="metric-value">{egp(metrics.revenue)}</div><div className="metric-foot">{metrics.orders} عملية بيع • الفترة المختارة</div></div>
     <div className="card"><div className="metric-label">إجمالي المصروفات</div><div className="metric-value">{egp(metrics.spent)}</div><div className="metric-foot">مصروفات مسجلة في نفس الفترة</div></div>
-    <div className="card"><div className="metric-label">الفرق قبل تكلفة البن</div><div className="metric-value" style={{color:metrics.difference>=0?"var(--green)":"var(--red)"}}>{egp(metrics.difference)}</div><div className="metric-foot">المبيعات ناقص المصروفات فقط — ليس صافي الربح</div></div>
+    <div className="card"><div className="metric-label">الفرق قبل تكلفة البن</div><div className="metric-value" style={{color:metrics.difference>=0?"var(--green)":"var(--red)"}}>{egp(metrics.difference)}</div><div className="metric-foot">مبيعات ناقص مصروفات مسجلة فقط؛ لا يمثل صافي الربح</div></div>
     <div className="card"><div className="metric-label">مديونيات العملاء</div><div className="metric-value">{egp(metrics.receivables)}</div><div className="metric-foot">{customers.length} عميل مسجل</div></div>
    </div>
    <div className="content-grid">
@@ -78,7 +78,7 @@ export default function OwnerAnalytics(){
     <section className="panel"><div className="panel-head"><h2>المخزون الفعلي المتبقي</h2><span className="pill green">حسب آخر رصيد لكل شحنة</span></div>{metrics.stock.length?metrics.stock.map(([name,value])=><div key={name} style={{display:"flex",justifyContent:"space-between",padding:"10px 0",borderBottom:"1px solid var(--line)",fontSize:13}}><span>{name}</span><strong>{value.toLocaleString("ar-EG",{maximumFractionDigits:3})} كجم</strong></div>):<div className="empty">لا توجد حركات مخزون مسجلة.</div>}</section>
     <section className="panel"><div className="panel-head"><h2>قنوات البيع</h2></div>{metrics.channels.length?metrics.channels.map(([name,value])=><div key={name} style={{display:"flex",justifyContent:"space-between",padding:"10px 0",borderBottom:"1px solid var(--line)",fontSize:13}}><span>{name}</span><strong>{egp(value)}</strong></div>):<div className="empty">لا توجد بيانات.</div>}<div style={{marginTop:14,paddingTop:12,borderTop:"1px solid var(--line)",fontSize:12,color:"var(--muted)"}}>الفترة: {dateLabel(filtered.start)} — {dateLabel(filtered.end)}</div></section>
    </div>
-   <section className="panel"><div className="panel-head"><h2>ملاحظات قراءة الأرقام</h2></div><div className="muted" style={{fontSize:12,lineHeight:2}}>• الفرق المعروض هو المبيعات ناقص المصروفات المسجلة فقط، ولا يخصم تكلفة البن المباع أو المصروفات غير المسجلة؛ لذلك لا تعتبره صافي الربح النهائي.<br/>• المخزون محسوب من آخر قيمة رصيد متبقٍ لكل صنف في حركات المخزون، وليس من جمع كل الحركات القديمة.<br/>• مديونيات العملاء مأخوذة من أرصدة جدول العملاء، وقد تحتاج مطابقة دورية مع التحصيلات.</div></section>
+   <section className="panel"><div className="panel-head"><h2>متى أقدر أقولك كسبان ولا خسران؟</h2></div><div className="muted" style={{fontSize:12,lineHeight:2}}>• المؤكد حاليًا: الإيرادات والمصروفات المسجلة، مديونيات العملاء، التزامات الموردين، وكميات المخزون.<br/>• صافي الربح لن يظهر كرقم نهائي قبل تثبيت تكلفة الكيلو الفعلية لكل صنف وتكلفة مكونات المشروبات وربطها بالمبيعات.<br/>• قيمة المخزون لن تُقدّر من أسعار البيع أو من تكاليف قديمة؛ نحتاج تكلفة شراء حديثة لكل شحنة.<br/>• النقدية الحالية لا تُستنتج من إجمالي المبيعات؛ يلزم رصيد خزنة افتتاحي وتسجيل التحصيلات والمدفوعات الفعلية.<br/>• الفرق المعروض هو المبيعات ناقص المصروفات المسجلة فقط، وليس صافي الربح.</div></section>
   </>}
  </section>;
 }
